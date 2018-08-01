@@ -15,23 +15,28 @@ namespace ConsoleApp1
         static void Main()
         {
             Stopwatch watch = new Stopwatch();
-            Logger.Info("Method GetCityEventLinks started ...");
+
+            Logger.Info("Method GetCityEventList started ...");
             watch.Start();
-            var resultListEvent = GetCityEventLinks(); //заполнение списка событий (устанавливаем url и id для них) 
+            var resultListEvent = GetCityEventList();
             watch.Stop();
             Console.WriteLine($"Elapsed time {watch.Elapsed}");
+
             Logger.Info("Json write and serialized started ...");
-            string serialized = JsonConvert.SerializeObject(resultListEvent);
-            File.WriteAllText("CityEventData.json", serialized);
+            string serializedCityEvents = JsonConvert.SerializeObject(resultListEvent);
+            File.WriteAllText(@"result\CityEventData.json", serializedCityEvents);
             Logger.Info("Json write and serialized complete.");
+
             Console.ReadLine();
         }
 
-        static List<CityEvent> GetCityEventLinks()
+        static List<CityEvent> GetCityEventList()
         {
             List<CityEvent> rawEventList = new List<CityEvent>();
+
             HtmlWeb web = new HtmlWeb();
             const int retryAttempsCount = 3;
+
             var pageUrl = "https://kuda-kazan.ru/event/";
             string titlePhrase = "";
             do
@@ -40,15 +45,17 @@ namespace ConsoleApp1
                 for (int i = 0; i < retryAttempsCount; i++)
                 {
                     pageOfCityEvents = web.Load(pageUrl);
+
                     if ((i + 1 == 3) && (pageOfCityEvents == null))
                     {
                         Logger.Error($"Can't get web event with url: {pageUrl}");
                         break;
                     }
-                    if (pageOfCityEvents == null)
-                        continue;
-                    break;
+
+                    if (pageOfCityEvents != null)
+                        break;
                 }
+
                 var events = pageOfCityEvents.DocumentNode.SelectNodes("//*[@class='events_list']/div/div[1]/*[@itemprop='url']");
                 foreach (HtmlNode n in events)
                 {
@@ -59,28 +66,32 @@ namespace ConsoleApp1
                     rawEventList.Add(newCityEvent);
                 }
 
-                var NextNode = pageOfCityEvents.GetElementbyId("content").SelectSingleNode("//*[@class='next']");
-                pageUrl = NextNode.Attributes["href"].Value;
-                titlePhrase = NextNode.Attributes["title"].Value;
+                var nextNode = pageOfCityEvents.GetElementbyId("content").SelectSingleNode("//*[@class='next']");
+                pageUrl = nextNode.Attributes["href"].Value;
+                titlePhrase = nextNode.Attributes["title"].Value;
             }
             while ((titlePhrase != "Вы на последней странице") && (titlePhrase != ""));
-            Logger.Info("Method GetCityEventLinks complete!");
+            Logger.Info("Method GetCityEventList complete!");
+
             Stopwatch watch = new Stopwatch();
             Logger.Info("Method FillCityEventsData started ...");
             watch.Start();
-            var result = FillCityEventsData(rawEventList); //заполнение полей
+            var result = FillCityEventData(rawEventList);
             watch.Stop();
             Logger.Info("Method FillCityEventsData complete!");
             Console.WriteLine($"Elapsed time {watch.Elapsed}");
+
             return result;
         }
 
-        static List<CityEvent> FillCityEventsData(List<CityEvent> rawEventList)
+        static List<CityEvent> FillCityEventData(List<CityEvent> rawEventList)
         {
             List<CityEvent> resultEvents = new List<CityEvent>();
+
             HtmlWeb web = new HtmlWeb();
             int n = 1;
             const int retryAttempsCount = 3;
+
             foreach (CityEvent ev in rawEventList)
             {
                 try
@@ -89,30 +100,26 @@ namespace ConsoleApp1
                     for (int i = 0; i < retryAttempsCount; i++)
                     {
                         docOfCityEvent = web.Load(ev.Url);
+
                         if ((i + 1 == 3) && (docOfCityEvent == null))
                         {
                             Logger.Error($"Can't get web event with url: {ev.Url}");
                             break;
                         }
-                        if (docOfCityEvent == null)
-                            continue;
-                        break;
+
+                        if (docOfCityEvent != null)
+                            break;
                     }
 
                     Console.WriteLine("Обработка события №" + n);
 
                     var shortReviewNode = docOfCityEvent.GetElementbyId("short_review");
                     var startDateNode = shortReviewNode.SelectSingleNode("//*[@itemprop='startDate']");
-                    if (startDateNode == null)
-                    {
-                        throw new Exception("Failed to get 'StartDate'");
-                    }
-                    else
-                    {
-                        ev.StartDate = startDateNode.InnerText;
-                    }
+
+                    ev.StartDate = (startDateNode == null) ? throw new Exception("Failed to get 'StartDate'") : startDateNode.InnerText;
 
                     var minPriceNode = shortReviewNode.SelectSingleNode("//*[@itemprop='price']");
+
                     if (minPriceNode == null)
                     {
                         throw new Exception("Failed to get 'minPrice'");
@@ -125,59 +132,33 @@ namespace ConsoleApp1
                         }
                         else
                         {
-                            if (minPriceNode.InnerText == "0.00")
-                            {
-                                ev.MinPrice = 0;
-                            }
-                            else
-                            {
-                                ev.MinPrice = int.Parse(minPriceNode.InnerText);
-                            }
+                            ev.MinPrice = (minPriceNode.InnerText == "0.00") ? 0 : int.Parse(minPriceNode.InnerText);
                         }
                     }
 
                     var endDateNode = shortReviewNode.SelectSingleNode("//*[@itemprop='endDate']");
                     var endDateNodeText = endDateNode.InnerText;
+
                     if ((endDateNode != null) && (ev.StartDate != endDateNodeText))
                     {
                         ev.EndDate = endDateNode.InnerText;
                     }
 
                     var viewsCountNode = shortReviewNode.SelectSingleNode("//*[@class='wishes']/span[1]");
-                    if (viewsCountNode == null)
-                    {
-                        throw new Exception("Failed to get 'ViewsCount'");
-                    }
-                    else
-                    {
-                        ev.ViewsCount = int.Parse(viewsCountNode.InnerText);
-                    }
+                    ev.ViewsCount = (viewsCountNode == null) ? throw new Exception("Failed to get 'ViewsCount'") : int.Parse(viewsCountNode.InnerText);
 
                     var contentNode = docOfCityEvent.GetElementbyId("content");
 
                     var nameNode = contentNode.SelectSingleNode("//h1");
-                    if (nameNode == null)
-                    {
-                        throw new Exception("Failed to get 'Name'");
-                    }
-                    else
-                    {
-                        ev.Name = WebUtility.HtmlDecode(nameNode.InnerText);
-                    }
+                    ev.Name = (nameNode == null) ? throw new Exception("Failed to get 'Name'") : WebUtility.HtmlDecode(nameNode.InnerText);
 
                     var descriptionNode = contentNode.SelectSingleNode("//*[@itemprop='description']/p[1]");
+                    ev.Description = (descriptionNode == null) ? throw new Exception("Failed to get 'Description'") : WebUtility.HtmlDecode(descriptionNode.InnerText);
 
-                    if (descriptionNode == null)
-                    {
-                        throw new Exception("Failed to get 'Description'");
-                    }
-                    else
-                    {
-                        ev.Description = WebUtility.HtmlDecode(descriptionNode.InnerText);
-                    }
                     n++;
                     resultEvents.Add(ev);
                 }
+
                 catch (Exception ex)
                 {
                     string guid = Guid.NewGuid().ToString();
