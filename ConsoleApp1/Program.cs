@@ -42,98 +42,112 @@ namespace ConsoleApp1
             string titlePhrase = "";
             do
             {
-                HtmlDocument docOfCityEvent = null;
-                HtmlDocument pageOfCityEvents = null;
-                for (int i = 0; i < retryAttempsCount; i++) //получение страницы и проверка на её существование
+                try
                 {
-                    pageOfCityEvents = web.Load(pageUrl);
+                    HtmlDocument docOfCityEvent = null;
+                    HtmlDocument pageOfCityEvents = null;
 
-                    if ((i + 1 == 3) && (pageOfCityEvents == null))
+                    for (int i = 0; i < retryAttempsCount; i++) //получение страницы и проверка на её существование
                     {
-                        Logger.Error($"Can't get web event with url: {pageUrl}");
-                        break;
-                    }
+                        pageOfCityEvents = web.Load(pageUrl);
 
-                    if (pageOfCityEvents != null)
-                        break;
-                }
-
-                var events = pageOfCityEvents.DocumentNode.SelectNodes("//*[@class='events_list']/div/div[1]/*[@itemprop='url']");
-                foreach (HtmlNode n in events)
-                {
-                    CityEvent newCityEvent = new CityEvent();
-                    newCityEvent.Url = n.Attributes["href"].Value;
-                    var urlList = newCityEvent.Url.Split('/');
-                    newCityEvent.ExternalId = urlList[urlList.Length - 2];
-
-                    for (int i = 0; i < retryAttempsCount; i++)
-                    {
-                        docOfCityEvent = web.Load(newCityEvent.Url);
-
-                        if ((i + 1 == 3) && (docOfCityEvent == null))
+                        if ((i + 1 == 3) && (pageOfCityEvents == null))
                         {
-                            Logger.Error($"Can't get web event with url: {newCityEvent.Url}");
+                            Logger.Error($"Can't get web event with url: {pageUrl}");
                             break;
                         }
 
-                        if (docOfCityEvent != null)
+                        if (pageOfCityEvents != null)
                             break;
                     }
 
-                    Console.WriteLine("Обработка события №" + m);
-
-                    var shortReviewNode = docOfCityEvent.GetElementbyId("short_review");
-                    var startDateNode = shortReviewNode.SelectSingleNode("//*[@itemprop='startDate']");
-
-                    newCityEvent.StartDate = (startDateNode == null) ? throw new Exception("Failed to get 'StartDate'") : startDateNode.InnerText;
-
-                    var minPriceNode = shortReviewNode.SelectSingleNode("//*[@itemprop='price']");
-
-                    if (minPriceNode == null)
+                    var events = pageOfCityEvents.DocumentNode.SelectNodes("//*[@class='events_list']/div/div[1]/*[@itemprop='url']");
+                    foreach (HtmlNode n in events)
                     {
-                        throw new Exception("Failed to get 'minPrice'");
-                    }
-                    else
-                    {
-                        if (minPriceNode.InnerText.Contains("от"))
+
+                        CityEvent newCityEvent = new CityEvent();
+                        newCityEvent.Url = n.Attributes["href"].Value;
+                        var urlList = newCityEvent.Url.Split('/');
+                        newCityEvent.ExternalId = urlList[urlList.Length - 2];
+
+                        for (int i = 0; i < retryAttempsCount; i++)
                         {
-                            newCityEvent.MinPrice = int.Parse(minPriceNode.InnerText.Substring(minPriceNode.InnerText.IndexOf(' ') + 1));
+                            docOfCityEvent = web.Load(newCityEvent.Url);
+
+                            if ((i + 1 == 3) && (docOfCityEvent == null))
+                            {
+                                Logger.Error($"Can't get web event with url: {newCityEvent.Url}");
+                                break;
+                            }
+
+                            if (docOfCityEvent != null)
+                                break;
+                        }
+
+                        Console.WriteLine("Обработка события №" + m);
+
+                        var shortReviewNode = docOfCityEvent.GetElementbyId("short_review");
+                        var startDateNode = shortReviewNode.SelectSingleNode("//*[@itemprop='startDate']");
+
+                        newCityEvent.StartDate = (startDateNode == null) ? throw new ParsingException("Failed to get 'StartDate'", docOfCityEvent.Text) : startDateNode.InnerText;
+
+                        var minPriceNode = shortReviewNode.SelectSingleNode("//*[@itemprop='price']");
+
+                        if (minPriceNode == null)
+                        {
+                            throw new ParsingException("Failed to get 'minPrice'", docOfCityEvent.Text);
                         }
                         else
                         {
-                            newCityEvent.MinPrice = (minPriceNode.InnerText == "0.00") ? 0 : int.Parse(minPriceNode.InnerText);
+                            if (minPriceNode.InnerText.Contains("от"))
+                            {
+                                newCityEvent.MinPrice = int.Parse(minPriceNode.InnerText.Substring(minPriceNode.InnerText.IndexOf(' ') + 1));
+                            }
+                            else
+                            {
+                                newCityEvent.MinPrice = (minPriceNode.InnerText == "0.00") ? 0 : int.Parse(minPriceNode.InnerText);
+                            }
                         }
+
+                        var endDateNode = shortReviewNode.SelectSingleNode("//*[@itemprop='endDate']");
+                        var endDateNodeText = endDateNode.InnerText;
+
+                        if ((endDateNode != null) && (newCityEvent.StartDate != endDateNodeText))
+                        {
+                            newCityEvent.EndDate = endDateNode.InnerText;
+                        }
+
+                        var viewsCountNode = shortReviewNode.SelectSingleNode("//*[@class='wishes']/span[1]");
+                        newCityEvent.ViewsCount = (viewsCountNode == null) ? throw new ParsingException("Failed to get 'ViewsCount'", docOfCityEvent.Text) : int.Parse(viewsCountNode.InnerText);
+
+                        var contentNode = docOfCityEvent.GetElementbyId("content");
+
+                        var nameNode = contentNode.SelectSingleNode("//h1");
+                        newCityEvent.Name = (nameNode == null) ? throw new ParsingException("Failed to get 'Name'", docOfCityEvent.Text) : WebUtility.HtmlDecode(nameNode.InnerText);
+
+                        var descriptionNode = contentNode.SelectSingleNode("//*[@itemprop='description']/p[1]");
+                        newCityEvent.Description = (descriptionNode == null) ? throw new ParsingException("Failed to get 'Description'", docOfCityEvent.Text) : WebUtility.HtmlDecode(descriptionNode.InnerText);
+
+                        m++;
+
+                        rawResultEventList.Add(newCityEvent);
                     }
 
-                    var endDateNode = shortReviewNode.SelectSingleNode("//*[@itemprop='endDate']");
-                    var endDateNodeText = endDateNode.InnerText;
-
-                    if ((endDateNode != null) && (newCityEvent.StartDate != endDateNodeText))
-                    {
-                        newCityEvent.EndDate = endDateNode.InnerText;
-                    }
-
-                    var viewsCountNode = shortReviewNode.SelectSingleNode("//*[@class='wishes']/span[1]");
-                    newCityEvent.ViewsCount = (viewsCountNode == null) ? throw new Exception("Failed to get 'ViewsCount'") : int.Parse(viewsCountNode.InnerText);
-
-                    var contentNode = docOfCityEvent.GetElementbyId("content");
-
-                    var nameNode = contentNode.SelectSingleNode("//h1");
-                    newCityEvent.Name = (nameNode == null) ? throw new Exception("Failed to get 'Name'") : WebUtility.HtmlDecode(nameNode.InnerText);
-
-                    var descriptionNode = contentNode.SelectSingleNode("//*[@itemprop='description']/p[1]");
-                    newCityEvent.Description = (descriptionNode == null) ? throw new Exception("Failed to get 'Description'") : WebUtility.HtmlDecode(descriptionNode.InnerText);
-
-                    m++;
-
-                    rawResultEventList.Add(newCityEvent);
+                    var nextNode = pageOfCityEvents.GetElementbyId("content").SelectSingleNode("//*[@class='next']"); //берем ссылку на следующую страницу
+                    pageUrl = nextNode.Attributes["href"].Value;
+                    titlePhrase = nextNode.Attributes["title"].Value;
                 }
 
-                var nextNode = pageOfCityEvents.GetElementbyId("content").SelectSingleNode("//*[@class='next']"); //берем ссылку на следующую страницу
-                pageUrl = nextNode.Attributes["href"].Value;
-                titlePhrase = nextNode.Attributes["title"].Value;
+                catch (ParsingException ex)
+                {
+                    string guid = Guid.NewGuid().ToString();
+                    Logger.Error($"{ex.Message}");
+                    string filename = $"{guid}";
+                    File.WriteAllText(filename, ex.Message);
+                }
             }
             while ((titlePhrase != "Вы на последней странице") && (titlePhrase != ""));
+
             Logger.Info("Method GetCityEventList complete!");
 
             return rawResultEventList;
